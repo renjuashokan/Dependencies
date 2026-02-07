@@ -1,4 +1,4 @@
-name: Build the project
+name: Build Dependencies
 
 on:
   push:
@@ -11,8 +11,39 @@ on:
   workflow_dispatch:
 
 jobs:
+  setup:
+    name: Setup Build Variables
+    runs-on: ubuntu-latest
+    outputs:
+      build-name: ${{ steps.set-build-name.outputs.build-name }}
+
+    steps:
+      - name: Set build name from branch
+        id: set-build-name
+        shell: bash
+        run: |
+          # Get branch name
+          if [ "$GITHUB_EVENT_NAME" == "pull_request" ]; then
+            BRANCH_NAME="$GITHUB_HEAD_REF"
+          else
+            BRANCH_NAME="${GITHUB_REF#refs/heads/}"
+          fi
+
+          # Clean branch name for artifact naming
+          CLEAN_NAME=$(echo "$BRANCH_NAME" | sed -E 's/^(b|feat\/|try\/)//g' | sed -e 's/ /_/g' | sed -e 's/\//_/g')
+          echo "Clean branch name is: $CLEAN_NAME"
+
+          RUN_NUMBER=${{ github.run_number }}
+          BUILD_NAME="${CLEAN_NAME}_${RUN_NUMBER}"
+
+          # Output variables
+          echo "build-name=$BUILD_NAME" >> $GITHUB_OUTPUT
+
+          echo "Build name: Dependencies-${BUILD_NAME}"
+
   build:
     name: Build ${{ matrix.configuration }} ${{ matrix.platform }}
+    needs: setup
     runs-on: windows-latest
     
     strategy:
@@ -39,9 +70,40 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v6
         with:
-          name: Dependencies-${{ matrix.platform }}-${{ matrix.configuration }}
+          name: Dependencies-${{ needs.setup.outputs.build-name }}-${{ matrix.platform }}-${{ matrix.configuration }}
           path: |
             bin/${{ matrix.configuration }}${{ matrix.platform }}/*.exe
             bin/${{ matrix.configuration }}${{ matrix.platform }}/*.dll
             bin/${{ matrix.configuration }}${{ matrix.platform }}/*.pdb
-          retention-days: 7
+
+  summary:
+    name: Build Summary
+    needs: [setup, build]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v6
+        with:
+          path: all-artifacts
+          pattern: 'Dependencies-*'
+          merge-multiple: false
+
+      - name: Create build summary
+        shell: bash
+        run: |
+          echo "## 🎉 Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Build Name:** ${{ needs.setup.outputs.build-name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Build Artifacts:" >> $GITHUB_STEP_SUMMARY
+          
+          for dir in all-artifacts/*/; do
+            if [ -d "$dir" ]; then
+              artifact_name=$(basename "$dir")
+              total_size=$(find "$dir" -type f -exec stat -c%s {} + 2>/dev/null | awk '{s+=$1} END {print s}')
+              size_mb=$(echo "scale=2; $total_size / 1048576" | bc)
+              echo "- **$artifact_name** ($size_mb MB)" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
