@@ -50,6 +50,7 @@
                     <RoutedUICommand x:Key="DoExpandAllNodes" Text="Expand All" />
                     <RoutedUICommand x:Key="DoCollapseAllNodes" Text="Collapse All" />
                     <RoutedUICommand x:Key="DoFindModuleInList" Text="Highlight Matching Module In List" />
+                    <RoutedUICommand x:Key="DoCopyChildrenAsJson" Text="Copy Children as JSON" />
 
                     <ContextMenu x:Key="TreeItemContextMenu">
                         <MenuItem Header="Highlight Matching Module In List" 
@@ -63,6 +64,11 @@
                                 Background="WhiteSmoke" 
                                 InputGestureText="Ctrl+C" 
                                 IsEnabled="False"  />
+                        <MenuItem Header="Copy Children as JSON" 
+                                Command="{StaticResource DoCopyChildrenAsJson}"
+                                CommandParameter="{Binding RelativeSource={RelativeSource AncestorLevel=1,AncestorType=TreeViewItem,Mode=FindAncestor}}"
+                                InputGestureText="Ctrl+J" 
+                                IsEnabled="True" />
                         <Separator Height="3" Margin="-1,0,0,0"/>
                         <MenuItem Header="Expand All" 
                                 Command="{StaticResource DoExpandAllNodes}"
@@ -171,6 +177,7 @@
                     <CommandBinding Command="{StaticResource DoExpandAllNodes}" Executed="ExpandAllNodes_Executed"/>
                     <CommandBinding Command="{StaticResource DoCollapseAllNodes}" Executed="CollapseAllNodes_Executed"/>
                     <CommandBinding Command="{StaticResource DoFindModuleInList}" Executed="DoFindModuleInList_Executed"/>
+                    <CommandBinding Command="{StaticResource DoCopyChildrenAsJson}" Executed="CopyChildrenAsJson_Executed"/>
                 </TreeView.CommandBindings>
             </TreeView>
             

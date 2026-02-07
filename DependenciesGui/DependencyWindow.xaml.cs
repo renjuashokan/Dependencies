@@ -8,6 +8,7 @@ using System.Windows.Input;
 using System.Diagnostics;
 using System.Windows.Data;
 using Microsoft.Win32;
+using System.Web.Script.Serialization;
 
 using Mono.Cecil;
 using Dependencies.ClrPh;
@@ -1344,6 +1345,138 @@ namespace Dependencies
                     return;
                 }
             }
+        }
+
+        private void CopyChildrenAsJson_Executed(object sender, ExecutedRoutedEventArgs e)
+        {
+            try
+            {
+                ModuleTreeViewItem Source = e.Source as ModuleTreeViewItem;
+                if (Source == null || Source.Items.Count == 0)
+                {
+                    System.Windows.MessageBox.Show("No child items to copy.", "Copy Children as JSON", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+
+                // Build a list of child module data
+                var childrenData = new List<Dictionary<string, object>>();
+
+                foreach (var item in Source.Items)
+                {
+                    ModuleTreeViewItem childItem = item as ModuleTreeViewItem;
+                    if (childItem == null)
+                        continue;
+
+                    DependencyNodeContext context = (DependencyNodeContext)childItem.DataContext;
+                    if (context.IsDummy)
+                        continue;
+
+                    DisplayModuleInfo moduleInfo = context.ModuleInfo.Target as DisplayModuleInfo;
+                    if (moduleInfo == null)
+                        continue;
+
+                    var moduleData = new Dictionary<string, object>
+                    {
+                        { "ModuleName", moduleInfo.ModuleName },
+                        { "FilePath", moduleInfo.Filepath ?? "Not Found" },
+                        { "Cpu", moduleInfo.Cpu ?? "Unknown" },
+                        { "Type", moduleInfo.Type ?? "Unknown" },
+                        { "Location", moduleInfo.Location.ToString() },
+                        { "Flags", new Dictionary<string, bool>
+                            {
+                                { "DelayLoad", (moduleInfo.Flags & ModuleFlag.DelayLoad) != 0 },
+                                { "ApiSet", (moduleInfo.Flags & ModuleFlag.ApiSet) != 0 },
+                                { "NotFound", (moduleInfo.Flags & ModuleFlag.NotFound) != 0 },
+                                { "MissingImports", (moduleInfo.Flags & ModuleFlag.MissingImports) != 0 },
+                                { "ClrReference", (moduleInfo.Flags & ModuleFlag.ClrReference) != 0 }
+                            }
+                        },
+                        { "HasErrors", moduleInfo.HasErrors }
+                    };
+
+                    childrenData.Add(moduleData);
+                }
+
+                if (childrenData.Count == 0)
+                {
+                    System.Windows.MessageBox.Show("No valid child items to copy.", "Copy Children as JSON", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+
+                // Serialize to JSON
+                var serializer = new JavaScriptSerializer();
+                string json = serializer.Serialize(childrenData);
+
+                // Format JSON with indentation for readability
+                json = FormatJson(json);
+
+                // Copy to clipboard
+                System.Windows.Clipboard.SetText(json);
+
+                // Optional: Show success message
+                // System.Windows.MessageBox.Show($"Copied {childrenData.Count} child items to clipboard as JSON.", "Copy Children as JSON", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                System.Windows.MessageBox.Show($"Error copying to clipboard: {ex.Message}", "Copy Children as JSON", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private string FormatJson(string json)
+        {
+            // Simple JSON formatter for better readability
+            int indentation = 0;
+            var formatted = new System.Text.StringBuilder();
+            bool inString = false;
+
+            for (int i = 0; i < json.Length; i++)
+            {
+                char c = json[i];
+
+                if (c == '"' && (i == 0 || json[i - 1] != '\\'))
+                {
+                    inString = !inString;
+                }
+
+                if (!inString)
+                {
+                    if (c == '{' || c == '[')
+                    {
+                        formatted.Append(c);
+                        formatted.Append("\r\n");
+                        indentation++;
+                        formatted.Append(new string(' ', indentation * 2));
+                    }
+                    else if (c == '}' || c == ']')
+                    {
+                        formatted.Append("\r\n");
+                        indentation--;
+                        formatted.Append(new string(' ', indentation * 2));
+                        formatted.Append(c);
+                    }
+                    else if (c == ',')
+                    {
+                        formatted.Append(c);
+                        formatted.Append("\r\n");
+                        formatted.Append(new string(' ', indentation * 2));
+                    }
+                    else if (c == ':')
+                    {
+                        formatted.Append(c);
+                        formatted.Append(' ');
+                    }
+                    else if (!char.IsWhiteSpace(c))
+                    {
+                        formatted.Append(c);
+                    }
+                }
+                else
+                {
+                    formatted.Append(c);
+                }
+            }
+
+            return formatted.ToString();
         }
 
         private void ExpandAllParentNode(ModuleTreeViewItem Item)
