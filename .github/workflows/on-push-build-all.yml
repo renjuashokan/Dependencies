@@ -1,0 +1,47 @@
+name: Build the project
+
+on:
+  push:
+    branches:
+        - main
+        - try/*
+  pull_request:
+    branches:
+        - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build ${{ matrix.configuration }} ${{ matrix.platform }}
+    runs-on: windows-latest
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Debug, Release]
+        platform: [x86, x64]
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+      
+      - name: Restore NuGet packages
+        run: nuget restore Dependencies.sln
+      
+      - name: Build solution
+        run: msbuild Dependencies.sln /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /m /v:minimal
+      
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: Dependencies-${{ matrix.platform }}-${{ matrix.configuration }}
+          path: |
+            bin/${{ matrix.configuration }}${{ matrix.platform }}/*.exe
+            bin/${{ matrix.configuration }}${{ matrix.platform }}/*.dll
+            bin/${{ matrix.configuration }}${{ matrix.platform }}/*.pdb
+          retention-days: 7
