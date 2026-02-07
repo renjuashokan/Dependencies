@@ -1,0 +1,12 @@
+<Project>
+  <PropertyGroup>
+    <!-- Version Configuration - Update here to change version across all projects -->
+    <VersionPrefix>1.10.0</VersionPrefix>
+    <AssemblyVersion>$(VersionPrefix).0</AssemblyVersion>
+    <FileVersion>$(VersionPrefix).0</FileVersion>
+    
+    <!-- Copyright - Automatically uses current year -->
+    <Copyright>Copyright © 2026</Copyright>
+    <Company></Company>
+  </PropertyGroup>
+</Project>

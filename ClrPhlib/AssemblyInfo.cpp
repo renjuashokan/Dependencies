@@ -14,7 +14,7 @@ using namespace System::Security::Permissions;
 [assembly:AssemblyConfigurationAttribute(L"")];
 [assembly:AssemblyCompanyAttribute(L"")];
 [assembly:AssemblyProductAttribute(L"ClrPhlib")];
-[assembly:AssemblyCopyrightAttribute(L"Copyright (c)  2017")];
+[assembly:AssemblyCopyrightAttribute(L"Copyright (c)  2026")];
 [assembly:AssemblyTrademarkAttribute(L"")];
 [assembly:AssemblyCultureAttribute(L"")];
 
@@ -29,7 +29,8 @@ using namespace System::Security::Permissions;
 // Vous pouvez spécifier toutes les valeurs ou indiquer les numéros de révision et de build par défaut
 // en utilisant '*', comme indiqué ci-dessous :
 
-[assembly:AssemblyVersionAttribute("1.10.*")];
+// Version attributes are now managed centrally in Directory.Build.props
+
 
 [assembly:ComVisible(false)];
 

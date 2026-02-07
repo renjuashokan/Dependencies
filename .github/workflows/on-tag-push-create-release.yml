@@ -1,0 +1,255 @@
+name: Create Release from Tag
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+      - "v*.*.*-*"  # For pre-releases like v1.10.1-rc1
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  common-vars:
+    name: Setup Release Variables
+    runs-on: ubuntu-latest
+    outputs:
+      tag-name: ${{ github.ref_name }}
+      release-name: ${{ steps.set-release-name.outputs.release-name }}
+      is-prerelease: ${{ steps.check-prerelease.outputs.is-prerelease }}
+
+    steps:
+    - name: Echo context data
+      run: |
+        echo "github.ref - ${{github.ref}}"
+        echo "github.ref_name - ${{github.ref_name}}"
+        echo "github.event_name - ${{github.event_name}}"
+
+    - name: Set release name
+      id: set-release-name
+      run: |
+        TAG_NAME="${{ github.ref_name }}"
+        RELEASE_NAME="Dependencies ${TAG_NAME}"
+        echo "release-name=${RELEASE_NAME}" >> $GITHUB_OUTPUT
+        echo "Release name: ${RELEASE_NAME}"
+
+    - name: Check if prerelease
+      id: check-prerelease
+      run: |
+        TAG_NAME="${{ github.ref_name }}"
+        if [[ "$TAG_NAME" == *"-"* ]]; then
+          echo "is-prerelease=true" >> $GITHUB_OUTPUT
+          echo "This is a prerelease: $TAG_NAME"
+        else
+          echo "is-prerelease=false" >> $GITHUB_OUTPUT
+          echo "This is a stable release: $TAG_NAME"
+        fi
+
+
+  build-release:
+    name: Build Release with Tag Version
+    needs: common-vars
+    runs-on: windows-latest
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [x86, x64]
+
+    steps:
+    - name: Checkout main branch
+      uses: actions/checkout@v5
+      with:
+        ref: main
+        submodules: recursive
+
+    - name: Set version from tag
+      shell: pwsh
+      run: |
+        Write-Host "Setting version to ${{ needs.common-vars.outputs.tag-name }}"
+        .\Set-Version.ps1 -GitTag "${{ needs.common-vars.outputs.tag-name }}"
+
+    - name: Add MSBuild to PATH
+      uses: microsoft/setup-msbuild@v2
+
+    - name: Restore NuGet packages
+      run: nuget restore Dependencies.sln
+
+    - name: Build Release configuration
+      run: msbuild Dependencies.sln /p:Configuration=Release /p:Platform=${{ matrix.platform }} /m /v:minimal
+
+    - name: Prepare release package
+      shell: pwsh
+      run: |
+        $tagName = "${{ needs.common-vars.outputs.tag-name }}"
+        $platform = "${{ matrix.platform }}"
+        $platformName = if ($platform -eq "x86") { "Win32" } else { "x64" }
+        
+        $packageName = "Dependencies-${tagName}-${platformName}-Release"
+        $outputDir = "release-package"
+        
+        New-Item -ItemType Directory -Force -Path $outputDir
+        
+        # Copy build outputs
+        $buildDir = "bin\Release$platform"
+        Copy-Item "$buildDir\*.exe" $outputDir -Force
+        Copy-Item "$buildDir\*.dll" $outputDir -Force
+        
+        Write-Host "Package contents:"
+        Get-ChildItem $outputDir | ForEach-Object { Write-Host "  $($_.Name)" }
+
+    - name: Upload release package
+      uses: actions/upload-artifact@v6
+      with:
+        name: release-${{ needs.common-vars.outputs.tag-name }}-${{ matrix.platform }}
+        path: release-package/*
+
+  create-release:
+    name: Create GitHub Release
+    needs: [common-vars, build-release]
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v5
+
+    - name: Download all release artifacts
+      uses: actions/download-artifact@v6
+      with:
+        path: artifacts
+        pattern: release-${{ needs.common-vars.outputs.tag-name }}-*
+        merge-multiple: false
+
+    - name: Package release artifacts
+      run: |
+        TAG_NAME="${{ needs.common-vars.outputs.tag-name }}"
+        mkdir -p release
+        
+        echo "Packaging release artifacts..."
+        
+        # Package x86 (Win32)
+        if [ -d "artifacts/release-${TAG_NAME}-x86" ]; then
+          cd "artifacts/release-${TAG_NAME}-x86"
+          zip -r "../../release/Dependencies-${TAG_NAME}-Win32-Release.zip" ./*
+          cd ../..
+          echo "Created: Dependencies-${TAG_NAME}-Win32-Release.zip"
+        fi
+        
+        # Package x64
+        if [ -d "artifacts/release-${TAG_NAME}-x64" ]; then
+          cd "artifacts/release-${TAG_NAME}-x64"
+          zip -r "../../release/Dependencies-${TAG_NAME}-x64-Release.zip" ./*
+          cd ../..
+          echo "Created: Dependencies-${TAG_NAME}-x64-Release.zip"
+        fi
+        
+        echo "Release packages:"
+        ls -lh release/
+
+    - name: Create Release Notes
+      run: |
+        TAG_NAME="${{ needs.common-vars.outputs.tag-name }}"
+        
+        {
+          echo "# 🚀 Dependencies ${TAG_NAME}"
+          echo ""
+          echo "A modern rewrite of the classic [Dependency Walker](https://www.dependencywalker.com/) tool reimagined with C# and WPF."
+          echo ""
+          echo "## ✨ Features"
+          echo ""
+          echo "- **📊 Dependency Tree Viewer**: Visualize module dependencies with an interactive tree view"
+          echo "- **🔍 Module Analysis**: Examine imports, exports, and module properties"
+          echo "- **🎯 Missing Dependencies Detection**: Quickly identify missing or incompatible modules"
+          echo "- **⚡ Modern UI**: Clean WPF interface with light/dark theme support"
+          echo "- **📦 Multi-Platform**: Supports x86 and x64 PE files"
+          echo "- **🔧 Advanced Features**: API Sets resolution, delay-load imports, and more"
+          echo ""
+          echo "## 📦 Downloads"
+          echo ""
+          echo "Choose the package that matches your system architecture:"
+          echo ""
+          echo "- **x64 (64-bit)**: For modern 64-bit Windows systems *(Recommended)*"
+          echo "- **Win32 (32-bit)**: For 32-bit Windows systems or analyzing 32-bit applications"
+          echo ""
+          echo "Each package includes:"
+          echo "- \`Dependencies.exe\` - Main GUI application"
+          echo "- \`DependenciesLib.dll\` - Core analysis library"
+          echo "- \`ClrPhlib.dll\` - PE file parsing library"
+          echo ""
+          echo "## 🚀 Quick Start"
+          echo ""
+          echo "1. Download the appropriate package for your architecture"
+          echo "2. Extract the ZIP file"
+          echo "3. Run \`Dependencies.exe\`"
+          echo "4. Open any PE file (.exe, .dll) to analyze its dependencies"
+          echo ""
+          echo "## 📋 System Requirements"
+          echo ""
+          echo "- **OS**: Windows 10/11 (64-bit or 32-bit)"
+          echo "- **.NET Framework**: 4.7.2 or higher"
+          echo "- **Visual C++ Redistributable**: 2022 (v143) or higher"
+          echo ""
+          echo "## 📚 Documentation"
+          echo ""
+          echo "For more information, see the [README](https://github.com/renjuashokan/Dependencies)."
+          echo ""
+          echo "## 🐛 Reporting Issues"
+          echo ""
+          echo "Found a bug? Please report it on [GitHub Issues](https://github.com/renjuashokan/Dependencies/issues)."
+          echo ""
+          echo "---"
+          echo ""
+          echo "💡 **Tip**: Dependencies is designed to replace the aging Dependency Walker tool with modern features and better Windows 10/11 compatibility."
+        } > release/RELEASE_NOTES.md
+
+    - name: Verify release assets
+      run: |
+        echo "Verifying release assets..."
+        
+        ZIP_COUNT=$(ls -1 release/Dependencies-*.zip 2>/dev/null | wc -l)
+        if [ "$ZIP_COUNT" -eq 0 ]; then
+          echo "ERROR: No release packages found"
+          exit 1
+        fi
+        
+        echo "✅ Found $ZIP_COUNT release package(s)"
+        ls -lh release/Dependencies-*.zip
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        name: ${{ needs.common-vars.outputs.release-name }}
+        tag_name: ${{ needs.common-vars.outputs.tag-name }}
+        body_path: release/RELEASE_NOTES.md
+        draft: false
+        prerelease: ${{ needs.common-vars.outputs.is-prerelease }}
+        files: release/Dependencies-*.zip
+        fail_on_unmatched_files: true
+
+    - name: Release Summary
+      run: |
+        echo "## 🎉 Dependencies Release Created!" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**🏷️ Tag:** ${{ needs.common-vars.outputs.tag-name }}" >> $GITHUB_STEP_SUMMARY
+        echo "**📦 Release:** ${{ needs.common-vars.outputs.release-name }}" >> $GITHUB_STEP_SUMMARY
+        echo "**🔖 Type:** ${{ needs.common-vars.outputs.is-prerelease == 'true' && 'Pre-release' || 'Stable Release' }}" >> $GITHUB_STEP_SUMMARY
+        echo "**🔨 Built from:** main branch with version ${{ needs.common-vars.outputs.tag-name }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📦 Release Assets:" >> $GITHUB_STEP_SUMMARY
+        
+        for file in release/Dependencies-*.zip; do
+          if [ -f "$file" ]; then
+            filename=$(basename "$file")
+            size=$(ls -lh "$file" | awk '{print $5}')
+            echo "- 📦 $filename ($size)" >> $GITHUB_STEP_SUMMARY
+          fi
+        done
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🌟 Key Features:" >> $GITHUB_STEP_SUMMARY
+        echo "- 📊 Modern dependency tree viewer" >> $GITHUB_STEP_SUMMARY
+        echo "- 🔍 Advanced module analysis" >> $GITHUB_STEP_SUMMARY
+        echo "- 🎯 Missing dependencies detection" >> $GITHUB_STEP_SUMMARY
+        echo "- ⚡ Clean WPF interface" >> $GITHUB_STEP_SUMMARY
+        echo "- 📦 Support for x86 and x64 PE files" >> $GITHUB_STEP_SUMMARY
